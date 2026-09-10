@@ -1,0 +1,8 @@
+pyproject.toml
+aegis_sdk/__init__.py
+aegis_sdk/client.py
+aegis_sdk.egg-info/PKG-INFO
+aegis_sdk.egg-info/SOURCES.txt
+aegis_sdk.egg-info/dependency_links.txt
+aegis_sdk.egg-info/requires.txt
+aegis_sdk.egg-info/top_level.txt

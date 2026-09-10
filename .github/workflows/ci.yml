@@ -1,0 +1,15 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -e core -e sdk -r services/api/requirements.txt pytest ruff mypy
+      - run: ruff check .
+      - run: mypy core/aegis_core
+      - run: pytest
+      - run: docker build -t aegis-api -f services/api/Dockerfile .
+      - run: docker build -t aegis-worker -f services/worker/Dockerfile .

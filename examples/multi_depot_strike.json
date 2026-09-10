@@ -1,0 +1,1 @@
+{"description":"Use to validate invalidating all strike-affected departure routes and reassigning shipment routes.","disruptions":[{"type":"strike","edge_id":"depot-a-outbound","severity":1},{"type":"strike","edge_id":"depot-a-rail","severity":1}]}
