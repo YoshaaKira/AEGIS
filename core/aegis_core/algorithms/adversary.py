@@ -3,7 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 
 
-def minimax(state: str, depth: int, maximizing: bool, children: Callable[[str], list[str]], value: Callable[[str], float]) -> float:
+def minimax(
+    state: str,
+    depth: int,
+    maximizing: bool,
+    children: Callable[[str], list[str]],
+    value: Callable[[str], float],
+) -> float:
     if depth == 0:
         return value(state)
     moves = children(state)
@@ -13,7 +19,15 @@ def minimax(state: str, depth: int, maximizing: bool, children: Callable[[str], 
     return max(scores) if maximizing else min(scores)
 
 
-def alpha_beta(state: str, depth: int, maximizing: bool, children: Callable[[str], list[str]], value: Callable[[str], float], alpha: float = float("-inf"), beta: float = float("inf")) -> float:
+def alpha_beta(
+    state: str,
+    depth: int,
+    maximizing: bool,
+    children: Callable[[str], list[str]],
+    value: Callable[[str], float],
+    alpha: float = float("-inf"),
+    beta: float = float("inf"),
+) -> float:
     if depth == 0 or not children(state):
         return value(state)
     if maximizing:

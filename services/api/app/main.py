@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
-
-from fastapi import Depends, FastAPI, HTTPException, WebSocket
-from fastapi.security import APIKeyHeader
-from fastapi.responses import PlainTextResponse
-from prometheus_client import Counter, generate_latest
 
 from aegis_core import Disruption, ResiliencePlanner
 from aegis_core.domain.models import GraphInput, PlanStatus, Shipment
 from aegis_core.services.pareto import frontier
+from fastapi import Depends, FastAPI, HTTPException, WebSocket
+from fastapi.responses import PlainTextResponse
+from fastapi.security import APIKeyHeader
+from prometheus_client import Counter, generate_latest
+
 from .config import settings
 from .schemas import BenchmarkResult, PlanRequest
+from .schemas import Plan as PlanResponse
 from .store import store
 
 app = FastAPI(title="AEGIS API", version="0.1.0")
@@ -43,18 +43,24 @@ def load_shipments(shipments: list[Shipment]) -> list[Shipment]:
     return shipments
 
 
-@app.post("/v1/plan", dependencies=[Depends(auth)])
+@app.post("/v1/plan", dependencies=[Depends(auth)], response_model=list[PlanResponse])
 def create_plan(request: PlanRequest):
     shipment = store.shipments.get(request.shipment_id)
     if shipment is None:
         raise HTTPException(status_code=404, detail="Shipment not found")
     try:
-        plan = planner().plan(shipment, store.disruptions, request.risk_weight)
+        # When risk_weight matches the default grid, enumerate the full cost-vs-
+        # regret frontier; otherwise return the single requested plan.
+        if request.risk_weight == 1.0:
+            plans = planner().frontier(shipment, store.disruptions)
+        else:
+            plans = [planner().plan(shipment, store.disruptions, request.risk_weight)]
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    store.plans[str(plan.id)] = plan
-    plans_created.inc()
-    return plan
+    for plan in plans:
+        store.plans[str(plan.id)] = plan
+        plans_created.inc()
+    return plans
 
 
 @app.post("/v1/disrupt", dependencies=[Depends(auth)])
@@ -80,8 +86,13 @@ def benchmark(plan_id: str) -> BenchmarkResult:
     plan = store.plans.get(plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Plan not found")
-    # The production worker owns the OR-Tools call; this endpoint has an explicit honest placeholder.
-    return BenchmarkResult(plan_id=plan_id, aegis_cost=plan.total_cost, aegis_regret=plan.expected_regret)
+    # The production worker owns the OR-Tools call; this endpoint is an
+    # honest placeholder returning only the AEGIS figures.
+    return BenchmarkResult(
+        plan_id=plan_id,
+        aegis_cost=plan.total_cost,
+        aegis_regret=plan.expected_regret,
+    )
 
 
 @app.get("/v1/pareto", dependencies=[Depends(auth)])

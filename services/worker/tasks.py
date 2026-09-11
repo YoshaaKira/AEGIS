@@ -8,7 +8,9 @@ celery = Celery("aegis", broker=os.getenv("REDIS_URL", "redis://localhost:6379/0
 
 
 @celery.task(name="aegis.benchmark_plan")
-def benchmark_plan(edges: list[tuple[int, int, int]], source: int, destination: int) -> dict[str, float]:
+def benchmark_plan(
+    edges: list[tuple[int, int, int]], source: int, destination: int
+) -> dict[str, float]:
     """Solve a single-source shortest-path baseline with OR-Tools' SimpleMinCostFlow.
 
     This adapter must only be called by benchmark workflows, never planning workflows.

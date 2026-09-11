@@ -1,6 +1,5 @@
-from pydantic import BaseModel, Field
-
 from aegis_core.domain.models import Disruption, GraphInput, Plan, Shipment
+from pydantic import BaseModel, Field
 
 
 class PlanRequest(BaseModel):
