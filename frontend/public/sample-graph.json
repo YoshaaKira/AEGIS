@@ -1,0 +1,18 @@
+{
+  "depots": [
+    { "id": "depot-a", "name": "A", "latitude": 40.712, "longitude": -74.006 },
+    { "id": "depot-b", "name": "B", "latitude": 40.758, "longitude": -73.985 },
+    { "id": "depot-c", "name": "C", "latitude": 40.750, "longitude": -73.990 },
+    { "id": "depot-d", "name": "D", "latitude": 40.706, "longitude": -74.010 },
+    { "id": "depot-e", "name": "E", "latitude": 40.773, "longitude": -73.960 }
+  ],
+  "routes": [
+    { "id": "r1", "origin_id": "depot-a", "destination_id": "depot-b", "cost": 4, "time_hours": 1, "risk_prior": 0.1, "restricted_goods": [] },
+    { "id": "r2", "origin_id": "depot-b", "destination_id": "depot-c", "cost": 5, "time_hours": 1, "risk_prior": 0.05, "restricted_goods": [] },
+    { "id": "r3", "origin_id": "depot-c", "destination_id": "depot-e", "cost": 6, "time_hours": 2, "risk_prior": 0.2, "restricted_goods": [] },
+    { "id": "r4", "origin_id": "depot-a", "destination_id": "depot-d", "cost": 3, "time_hours": 1, "risk_prior": 0.08, "restricted_goods": [] },
+    { "id": "r5", "origin_id": "depot-d", "destination_id": "depot-e", "cost": 7, "time_hours": 2, "risk_prior": 0.15, "restricted_goods": [] },
+    { "id": "r6", "origin_id": "depot-a", "destination_id": "depot-c", "cost": 10, "time_hours": 2, "risk_prior": 0.3, "restricted_goods": [] },
+    { "id": "r7", "origin_id": "depot-d", "destination_id": "depot-b", "cost": 8, "time_hours": 2, "risk_prior": 0.12, "restricted_goods": [] }
+  ]
+}
