@@ -8,12 +8,12 @@ const WS_URL =
     .replace(/^http/, "ws");
 
 const EVENT_COLORS: Record<string, string> = {
-  connected: "#59d9a9",
-  heartbeat: "#9eafa8",
-  plan_started: "#59d9a9",
-  disruption_injected: "#ffb74d",
-  replan_started: "#b6eaca",
-  replan_finalized: "#59d9a9",
+  connected: "#2563eb",
+  heartbeat: "#64748b",
+  plan_started: "#2563eb",
+  disruption_injected: "#dc2626",
+  replan_started: "#0f172a",
+  replan_finalized: "#2563eb",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -84,7 +84,7 @@ export function EventConsole() {
   return (
     <div className="event-console">
       <div className="console-header">
-        <span className="status-dot" style={{ background: connected ? "#59d9a9" : "#e74c3c" }} />
+        <span className="status-dot" style={{ background: connected ? "#2563eb" : "#dc2626" }} />
         <span className="status-text">{connected ? "Connected" : "Disconnected"}</span>
         {error && <span className="error-text">{error}</span>}
       </div>

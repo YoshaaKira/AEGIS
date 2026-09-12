@@ -8,6 +8,15 @@ class PlanRequest(BaseModel):
     risk_weight: float = Field(default=1.0, ge=0)
 
 
+class CompareRequest(BaseModel):
+    shipment_id: str
+
+
+class TraceRequest(BaseModel):
+    shipment_id: str
+    algorithm: str = "ucs"
+
+
 class BenchmarkResult(BaseModel):
     plan_id: str
     aegis_cost: float
@@ -18,4 +27,13 @@ class BenchmarkResult(BaseModel):
     regret_delta_pct: float | None = None
 
 
-__all__ = ["BenchmarkResult", "Disruption", "GraphInput", "Plan", "PlanRequest", "Shipment"]
+__all__ = [
+    "BenchmarkResult",
+    "CompareRequest",
+    "Disruption",
+    "GraphInput",
+    "Plan",
+    "PlanRequest",
+    "Shipment",
+    "TraceRequest",
+]
