@@ -43,6 +43,15 @@ export interface Shipment {
   deadline_hours?: number | null;
 }
 
+export interface DisruptionInfo {
+  id: string;
+  type: string;
+  edge_id: string;
+  severity: number;
+  severity_label: string;
+  description: string;
+}
+
 export interface Plan {
   id: string;
   shipment_id: string;
@@ -50,6 +59,18 @@ export interface Plan {
   total_cost: number;
   expected_regret: number;
   status: string;
+  // Truck capacity
+  truck_class: string;
+  max_payload_kg: number;
+  gross_vehicle_weight_kg: number;
+  cargo_weight_kg: number;
+  capacity_utilisation_pct: number;
+  // Risk intelligence
+  potential_risks: DisruptionInfo[];
+  risk_score: number;
+  // Recommendation
+  is_best: boolean;
+  recommendation: string;
 }
 
 export interface PlanPoint {
@@ -130,13 +151,31 @@ export async function loadShipments(shipments: Shipment[]): Promise<Shipment[]> 
   });
 }
 
+export interface TruckClass {
+  key: string;
+  label: string;
+  max_payload_kg: number;
+  max_gvw_kg: number;
+}
+
+export async function fetchTruckClasses(): Promise<TruckClass[]> {
+  return request("/v1/truck-classes");
+}
+
 export async function createPlan(
   shipmentId: string,
-  riskWeight: number = 1.0
+  truckClass: string = "hcv",
+  maxPayloadKg?: number,
+  gvwKg?: number
 ): Promise<Plan[]> {
   return request("/v1/plan", {
     method: "POST",
-    body: JSON.stringify({ shipment_id: shipmentId, risk_weight: riskWeight }),
+    body: JSON.stringify({
+      shipment_id: shipmentId,
+      truck_class: truckClass,
+      ...(maxPayloadKg ? { max_payload_kg: maxPayloadKg } : {}),
+      ...(gvwKg ? { gross_vehicle_weight_kg: gvwKg } : {}),
+    }),
   });
 }
 

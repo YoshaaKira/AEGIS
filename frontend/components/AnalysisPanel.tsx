@@ -11,12 +11,24 @@ import {
   BarChart3,
   TrendingUp,
   Sliders,
+  Truck,
+  Star,
+  Shield,
+  Weight,
+  Zap,
 } from "lucide-react";
 import type { Plan, GraphInput } from "../lib/api";
 import { riskColor } from "../lib/constants";
 import { TradeoffRadarChart } from "./TradeoffRadarChart";
 import { HopBreakdownChart } from "./HopBreakdownChart";
 import { TransitProfileChart } from "./TransitProfileChart";
+
+const SEVERITY_COLOR: Record<string, string> = {
+  Low: "#16a34a",
+  Medium: "#f59e0b",
+  High: "#ea580c",
+  Critical: "#dc2626",
+};
 
 interface Props {
   plans: Plan[];
@@ -60,6 +72,29 @@ export function AnalysisPanel({ plans, graph, selectedPlanIndex, onSelectPlan }:
 
   return (
     <div className="stack">
+
+      {/* Best-route recommendation banner */}
+      {plan.recommendation && (
+        <div
+          className="animate-fade-in"
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: plan.is_best ? "rgba(37,99,235,0.07)" : "rgba(245,158,11,0.07)",
+            border: `1px solid ${plan.is_best ? "rgba(37,99,235,0.25)" : "rgba(245,158,11,0.25)"}`,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+            fontSize: "0.8rem",
+            fontWeight: 600,
+            color: plan.is_best ? "#1d4ed8" : "#b45309",
+          }}
+        >
+          {plan.is_best ? <Star size={14} fill="#2563eb" /> : <Zap size={14} />}
+          <span>{plan.recommendation}</span>
+        </div>
+      )}
+
       {/* Metric Cards */}
       <div className="metric-grid">
         <div className="metric-card" style={{ borderLeft: "3px solid #2563eb" }}>
@@ -87,6 +122,91 @@ export function AnalysisPanel({ plans, graph, selectedPlanIndex, onSelectPlan }:
         </div>
       </div>
 
+      {/* Truck Capacity Card */}
+      {plan.truck_class && (
+        <div className="card animate-fade-in" style={{ padding: "12px 16px" }}>
+          <div className="card-header" style={{ marginBottom: 8 }}>
+            <h2 style={{ fontSize: "0.82rem" }}>
+              <Truck size={13} style={{ color: "#2563eb" }} /> Truck Specification
+            </h2>
+            <span
+              style={{
+                fontSize: "0.65rem",
+                background: "rgba(37,99,235,0.08)",
+                color: "#2563eb",
+                padding: "2px 7px",
+                borderRadius: 9999,
+                fontWeight: 700,
+              }}
+            >
+              {plan.truck_class.toUpperCase()}
+            </span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: "0.68rem", color: "#64748b", fontWeight: 600 }}>Max Payload</div>
+              <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#0f172a" }}>
+                {(plan.max_payload_kg / 1000).toFixed(1)} T
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "0.68rem", color: "#64748b", fontWeight: 600 }}>GVW Limit</div>
+              <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#0f172a" }}>
+                {(plan.gross_vehicle_weight_kg / 1000).toFixed(1)} T
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "0.68rem", color: "#64748b", fontWeight: 600 }}>Cargo Weight</div>
+              <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#0f172a" }}>
+                {plan.cargo_weight_kg.toFixed(0)} kg
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "0.68rem", color: "#64748b", fontWeight: 600 }}>Capacity Used</div>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: "0.88rem",
+                  color:
+                    plan.capacity_utilisation_pct > 90
+                      ? "#dc2626"
+                      : plan.capacity_utilisation_pct > 70
+                      ? "#f59e0b"
+                      : "#16a34a",
+                }}
+              >
+                {plan.capacity_utilisation_pct.toFixed(1)}%
+              </div>
+            </div>
+          </div>
+          {/* Capacity bar */}
+          <div
+            style={{
+              marginTop: 10,
+              height: 6,
+              borderRadius: 3,
+              background: "#e2e8f0",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${Math.min(plan.capacity_utilisation_pct, 100)}%`,
+                borderRadius: 3,
+                background:
+                  plan.capacity_utilisation_pct > 90
+                    ? "#dc2626"
+                    : plan.capacity_utilisation_pct > 70
+                    ? "#f59e0b"
+                    : "#2563eb",
+                transition: "width 0.6s ease",
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Plan Selector (if multiple Pareto options) */}
       {plans.length > 1 && (
         <div className="card" style={{ padding: "12px 16px" }}>
@@ -100,8 +220,9 @@ export function AnalysisPanel({ plans, graph, selectedPlanIndex, onSelectPlan }:
                 key={p.id || i}
                 className={`btn btn-sm ${i === selectedPlanIndex ? "btn-primary" : "btn-secondary"}`}
                 onClick={() => onSelectPlan(i)}
-                style={{ fontSize: "0.75rem", padding: "5px 10px" }}
+                style={{ fontSize: "0.75rem", padding: "5px 10px", display: "flex", alignItems: "center", gap: 4 }}
               >
+                {p.is_best && <Star size={11} fill="currentColor" />}
                 Plan {i + 1} · ₹{p.total_cost.toFixed(1)} · R:{p.expected_regret.toFixed(2)}
               </button>
             ))}
@@ -255,6 +376,100 @@ export function AnalysisPanel({ plans, graph, selectedPlanIndex, onSelectPlan }:
             })}
           </tbody>
         </table>
+
+        {/* Potential Risks */}
+        {plan.potential_risks && plan.potential_risks.length > 0 ? (
+          <div style={{ marginTop: 14 }}>
+            <div
+              style={{
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                color: "#64748b",
+                marginBottom: 6,
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              <AlertTriangle size={11} style={{ color: "#ea580c" }} />
+              POTENTIAL RISKS ON THIS ROUTE
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {plan.potential_risks.map((risk) => (
+                <div
+                  key={risk.id}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: "rgba(234,88,12,0.05)",
+                    border: "1px solid rgba(234,88,12,0.15)",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: SEVERITY_COLOR[risk.severity_label] || "#ea580c",
+                      marginTop: 5,
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        color: "#0f172a",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {risk.description}
+                      <span
+                        style={{
+                          fontSize: "0.62rem",
+                          padding: "1px 6px",
+                          borderRadius: 9999,
+                          fontWeight: 700,
+                          background: `${SEVERITY_COLOR[risk.severity_label]}22`,
+                          color: SEVERITY_COLOR[risk.severity_label] || "#ea580c",
+                        }}
+                      >
+                        {risk.severity_label}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.68rem", color: "#64748b", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                      edge: {risk.edge_id}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "8px 12px",
+              borderRadius: 8,
+              background: "rgba(22,163,74,0.06)",
+              border: "1px solid rgba(22,163,74,0.2)",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: "0.78rem",
+              color: "#15803d",
+              fontWeight: 600,
+            }}
+          >
+            <Shield size={13} /> No active disruptions on this route.
+          </div>
+        )}
       </div>
     </div>
   );

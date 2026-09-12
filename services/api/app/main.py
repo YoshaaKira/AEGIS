@@ -4,6 +4,7 @@ import asyncio
 import heapq
 import time
 from collections import deque
+from typing import Any
 
 from aegis_core import Disruption, ResiliencePlanner
 from aegis_core.algorithms.search import (
@@ -25,8 +26,15 @@ from fastapi.security import APIKeyHeader
 from prometheus_client import Counter, generate_latest
 
 from .config import settings
-from .schemas import BenchmarkResult, CompareRequest, PlanRequest, TraceRequest
-from .schemas import Plan as PlanResponse
+from .schemas import (
+    TRUCK_CLASSES,
+    BenchmarkResult,
+    CompareRequest,
+    DisruptionInfo,
+    PlanRequest,
+    PlanResponse,
+    TraceRequest,
+)
 from .store import store
 
 app = FastAPI(title="AEGIS API", version="0.1.0")
@@ -54,6 +62,84 @@ def planner() -> ResiliencePlanner:
     return ResiliencePlanner(store.graph)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _severity_label(s: float) -> str:
+    if s < 0.25:
+        return "Low"
+    if s < 0.5:
+        return "Medium"
+    if s < 0.75:
+        return "High"
+    return "Critical"
+
+
+def _disruption_description(d: Disruption) -> str:
+    return (
+        f"{d.type.replace('_', ' ').title()} on segment {d.edge_id} "
+        f"(severity {d.severity:.0%})"
+    )
+
+
+def _risks_for_route(route_ids: list[str], disruptions: list[Disruption]) -> list[DisruptionInfo]:
+    """Return disruptions whose edge_id appears in the given route."""
+    edge_set = set(route_ids)
+    seen: set[str] = set()
+    risks: list[DisruptionInfo] = []
+    for d in disruptions:
+        key = str(d.id)
+        if d.edge_id in edge_set and key not in seen:
+            seen.add(key)
+            risks.append(DisruptionInfo(
+                id=key,
+                type=d.type,
+                edge_id=d.edge_id,
+                severity=d.severity,
+                severity_label=_severity_label(d.severity),
+                description=_disruption_description(d),
+            ))
+    return risks
+
+
+def _aggregate_risk_score(risks: list[DisruptionInfo]) -> float:
+    """Weighted aggregate — worst disruption dominates."""
+    if not risks:
+        return 0.0
+    scores = sorted([r.severity for r in risks], reverse=True)
+    # Exponential decay weighting so the worst disruption carries most weight
+    total = sum(s * (0.7 ** i) for i, s in enumerate(scores))
+    return min(total, 1.0)
+
+
+def _recommendation(is_best: bool, risk_score: float, utilisation: float) -> str:
+    if is_best:
+        parts = ["✅ Recommended route"]
+        if risk_score > 0.5:
+            parts.append("— monitor active disruptions")
+        if utilisation > 90:
+            parts.append("— truck near capacity limit")
+        return ". ".join(parts) + "."
+    if risk_score >= 0.75:
+        return "⚠ High disruption risk — consider alternate corridor."
+    if risk_score >= 0.5:
+        return "⚠ Moderate risk — re-check before dispatch."
+    return "Alternative viable route."
+
+
+def _resolve_truck(request: PlanRequest) -> tuple[int, int]:
+    """Return (max_payload_kg, gvw_kg) resolving class defaults vs overrides."""
+    cls = TRUCK_CLASSES.get(request.truck_class, TRUCK_CLASSES["hcv"])
+    max_payload = request.max_payload_kg or cls["max_payload_kg"]
+    gvw = request.gross_vehicle_weight_kg or cls["max_gvw_kg"]
+    return int(max_payload), int(gvw)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 @app.post("/v1/graph", dependencies=[Depends(auth)])
 def load_graph(graph: GraphInput) -> GraphInput:
     store.graph = graph
@@ -67,23 +153,83 @@ def load_shipments(shipments: list[Shipment]) -> list[Shipment]:
 
 
 @app.post("/v1/plan", dependencies=[Depends(auth)], response_model=list[PlanResponse])
-def create_plan(request: PlanRequest):
+def create_plan(request: PlanRequest) -> list[PlanResponse]:
     shipment = store.shipments.get(request.shipment_id)
     if shipment is None:
         raise HTTPException(status_code=404, detail="Shipment not found")
+
+    # ── Truck capacity check ─────────────────────────────────────────────
+    max_payload_kg, gvw_kg = _resolve_truck(request)
+    cargo_kg = shipment.weight_kg
+    if cargo_kg > max_payload_kg:
+        truck_label = TRUCK_CLASSES.get(request.truck_class, {}).get("label", request.truck_class)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Cargo weight {cargo_kg:.0f} kg exceeds the selected truck's "
+                f"maximum payload of {max_payload_kg:,} kg "
+                f"({truck_label}). "
+                "Please choose a larger truck class or split the shipment."
+            ),
+        )
+
+    # ── Run AEGIS planner (full Pareto frontier) ─────────────────────────
     try:
-        # When risk_weight matches the default grid, enumerate the full cost-vs-
-        # regret frontier; otherwise return the single requested plan.
-        if request.risk_weight == 1.0:
-            plans = planner().frontier(shipment, store.disruptions)
-        else:
-            plans = [planner().plan(shipment, store.disruptions, request.risk_weight)]
+        raw_plans = planner().frontier(shipment, store.disruptions)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    for plan in plans:
+
+    if not raw_plans:
+        raise HTTPException(status_code=422, detail="No feasible route found.")
+
+    # ── Enrich plans with risk info ──────────────────────────────────────
+    disruptions = store.disruptions
+    responses: list[PlanResponse] = []
+
+    for plan in raw_plans:
+        risks = _risks_for_route(plan.route_ids, disruptions)
+        risk_score = _aggregate_risk_score(risks)
+        utilisation = round((cargo_kg / max_payload_kg) * 100, 1)
+
+        responses.append(PlanResponse(
+            id=str(plan.id),
+            shipment_id=plan.shipment_id,
+            route_ids=plan.route_ids,
+            total_cost=plan.total_cost,
+            expected_regret=plan.expected_regret,
+            status=plan.status,
+            truck_class=request.truck_class,
+            max_payload_kg=max_payload_kg,
+            gross_vehicle_weight_kg=gvw_kg,
+            cargo_weight_kg=cargo_kg,
+            capacity_utilisation_pct=utilisation,
+            potential_risks=risks,
+            risk_score=risk_score,
+        ))
+
+    # ── Pick "best" route ────────────────────────────────────────────────
+    # Score = 0.5 * normalised_cost + 0.5 * risk_score  (lower is better)
+    max_cost = max(p.total_cost for p in responses) or 1.0
+    min_cost = min(p.total_cost for p in responses)
+    cost_range = max_cost - min_cost or 1.0
+
+    def combined_score(p: PlanResponse) -> float:
+        norm_cost = (p.total_cost - min_cost) / cost_range
+        return 0.5 * norm_cost + 0.5 * p.risk_score
+
+    best = min(responses, key=combined_score)
+    best.is_best = True
+
+    for p in responses:
+        utilisation = p.capacity_utilisation_pct
+        p.recommendation = _recommendation(p.is_best, p.risk_score, utilisation)
+
+    # ── Persist & return ─────────────────────────────────────────────────
+    for plan in raw_plans:
         store.plans[str(plan.id)] = plan
         plans_created.inc()
-    return plans
+
+    return responses
 
 
 @app.post("/v1/disrupt", dependencies=[Depends(auth)])
@@ -109,8 +255,6 @@ def benchmark(plan_id: str) -> BenchmarkResult:
     plan = store.plans.get(plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Plan not found")
-    # The production worker owns the OR-Tools call; this endpoint is an
-    # honest placeholder returning only the AEGIS figures.
     return BenchmarkResult(
         plan_id=plan_id,
         aegis_cost=plan.total_cost,
@@ -121,6 +265,15 @@ def benchmark(plan_id: str) -> BenchmarkResult:
 @app.get("/v1/pareto", dependencies=[Depends(auth)])
 def pareto():
     return frontier(list(store.plans.values()))
+
+
+@app.get("/v1/truck-classes")
+def truck_classes():
+    """Return all supported Indian truck classes with their limits."""
+    return [
+        {"key": k, **v}
+        for k, v in TRUCK_CLASSES.items()
+    ]
 
 
 @app.post("/v1/plan/compare", dependencies=[Depends(auth)])
@@ -145,7 +298,8 @@ def compare_algorithms(request: CompareRequest):
     try:
         h = great_circle_heuristic(coordinates, goal)
     except Exception:
-        h = lambda _: 0.0
+        def h(_: Any) -> float:
+            return 0.0
 
     def calc_cost(path: list[str] | None) -> float | None:
         if not path or len(path) < 2:
@@ -157,18 +311,38 @@ def compare_algorithms(request: CompareRequest):
                 total += min(r.cost for r in edges)
         return total
 
+    def bfs_algo(neighbors):
+        return bfs(start, goal, neighbors)
+
+    def dfs_algo(neighbors):
+        return dfs(start, goal, neighbors)
+
+    def ucs_algo(neighbors):
+        res = ucs(start, goal, neighbors)
+        return res[0] if res else None
+
+    def astar_algo(neighbors):
+        res = astar(start, goal, neighbors, h)
+        return res[0] if res else None
+
+    def greedy_algo(neighbors):
+        return greedy_best_first(start, goal, neighbors, h)
+
+    def hill_climbing_algo(neighbors):
+        return hill_climbing(start, goal, neighbors, h, maximizing=False)
+
     algos = [
-        ("bfs", lambda n: bfs(start, goal, n)),
-        ("dfs", lambda n: dfs(start, goal, n)),
-        ("ucs", lambda n: (res := ucs(start, goal, n)) and res[0]),
-        ("astar", lambda n: (res := astar(start, goal, n, h)) and res[0]),
-        ("greedy", lambda n: greedy_best_first(start, goal, n, h)),
-        ("hill_climbing", lambda n: hill_climbing(start, goal, n, h, maximizing=False)),
+        ("bfs", bfs_algo),
+        ("dfs", dfs_algo),
+        ("ucs", ucs_algo),
+        ("astar", astar_algo),
+        ("greedy", greedy_algo),
+        ("hill_climbing", hill_climbing_algo),
     ]
 
     results = []
     for name, run_fn in algos:
-        explored = set()
+        explored: set[str] = set()
 
         def n_wrap(node: str, _n=base_neighbors, _exp=explored) -> list[tuple[str, float]]:
             _exp.add(node)
@@ -217,7 +391,8 @@ def plan_trace(request: TraceRequest):
     try:
         h = great_circle_heuristic(coordinates, goal)
     except Exception:
-        h = lambda _: 0.0
+        def h(_: Any) -> float:
+            return 0.0
 
     steps = []
     step_idx = 0
@@ -248,17 +423,17 @@ def plan_trace(request: TraceRequest):
                     seen.add(child)
                     stack.append((child, node, cost + edge_cost, path + [child]))
     elif algo in ("ucs", "astar"):
-        frontier = [(h(start) if algo == "astar" else 0.0, 0.0, start, None, [start])]
+        pq_frontier = [(h(start) if algo == "astar" else 0.0, 0.0, start, None, [start])]
         best = {start: 0.0}
-        while frontier:
-            _, cost, node, parent, path = heapq.heappop(frontier)
+        while pq_frontier:
+            _, cost, node, parent, path = heapq.heappop(pq_frontier)
             is_goal = (node == goal)
             steps.append({
                 "step": step_idx,
                 "node": node,
                 "parent": parent,
                 "cost_so_far": cost,
-                "frontier_size": len(frontier),
+                "frontier_size": len(pq_frontier),
                 "is_goal": is_goal,
             })
             step_idx += 1
@@ -273,7 +448,7 @@ def plan_trace(request: TraceRequest):
                 if cand < best.get(child, float("inf")):
                     best[child] = cand
                     prio = cand + (h(child) if algo == "astar" else 0.0)
-                    heapq.heappush(frontier, (prio, cand, child, node, path + [child]))
+                    heapq.heappush(pq_frontier, (prio, cand, child, node, path + [child]))
     else:  # default bfs
         queue = deque([(start, None, 0.0, [start])])
         seen = {start}

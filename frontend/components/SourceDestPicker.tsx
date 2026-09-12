@@ -4,15 +4,17 @@ import {
   MapPin,
   Navigation,
   Package,
-  Gauge,
+  Truck,
+  Weight,
   ArrowUpDown,
   Search,
   X,
   Compass,
   Sparkles,
   Building2,
+  AlertTriangle,
 } from "lucide-react";
-import type { Depot } from "../lib/api";
+import type { Depot, TruckClass } from "../lib/api";
 import { searchAddress, type GeocodedLocation } from "../lib/geocoding";
 import type { CustomLocation } from "../lib/dynamicGraph";
 
@@ -21,12 +23,17 @@ interface Props {
   sourceLoc: CustomLocation | null;
   destLoc: CustomLocation | null;
   goodsType: string;
-  riskWeight: number;
+  truckClass: string;
+  maxPayloadKg: number | undefined;
+  gvwKg: number | undefined;
+  truckClasses: TruckClass[];
   onSourceSelect: (loc: CustomLocation) => void;
   onDestSelect: (loc: CustomLocation) => void;
   onSwap: () => void;
   onGoodsChange: (type: string) => void;
-  onRiskWeightChange: (w: number) => void;
+  onTruckClassChange: (cls: string) => void;
+  onMaxPayloadChange: (kg: number | undefined) => void;
+  onGvwChange: (kg: number | undefined) => void;
   onPresetSelect: (src: CustomLocation, dst: CustomLocation) => void;
 }
 
@@ -35,12 +42,17 @@ export function SourceDestPicker({
   sourceLoc,
   destLoc,
   goodsType,
-  riskWeight,
+  truckClass,
+  maxPayloadKg,
+  gvwKg,
+  truckClasses,
   onSourceSelect,
   onDestSelect,
   onSwap,
   onGoodsChange,
-  onRiskWeightChange,
+  onTruckClassChange,
+  onMaxPayloadChange,
+  onGvwChange,
   onPresetSelect,
 }: Props) {
   // Source search state
@@ -514,32 +526,95 @@ export function SourceDestPicker({
         </select>
       </div>
 
-      {/* Risk Weight Slider */}
-      <div className="form-group" style={{ marginBottom: 0 }}>
+      {/* ── Indian Truck Specification ───────────────────────────────── */}
+      <div className="form-group">
         <label className="form-label">
-          <Gauge size={11} /> Resilience Risk Weight: {riskWeight.toFixed(1)}
+          <Truck size={11} style={{ color: "#2563eb" }} /> Truck Class
+          <span
+            style={{
+              marginLeft: 6,
+              fontSize: "0.65rem",
+              background: "rgba(37,99,235,0.08)",
+              color: "#2563eb",
+              padding: "1px 6px",
+              borderRadius: 9999,
+              fontWeight: 600,
+            }}
+          >
+            MoRTH / CMVR 1989
+          </span>
         </label>
-        <input
-          type="range"
-          className="form-range"
-          min={0}
-          max={5}
-          step={0.5}
-          value={riskWeight}
-          onChange={(e) => onRiskWeightChange(parseFloat(e.target.value))}
-        />
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "0.68rem",
-            color: "var(--text-secondary)",
-            marginTop: 4,
-          }}
+        <select
+          className="form-select"
+          value={truckClass}
+          onChange={(e) => onTruckClassChange(e.target.value)}
         >
-          <span>Cost-optimal (0.0)</span>
-          <span>Risk-averse (5.0)</span>
+          {truckClasses.length > 0 ? (
+            truckClasses.map((tc) => (
+              <option key={tc.key} value={tc.key}>
+                {tc.label}
+              </option>
+            ))
+          ) : (
+            <>
+              <option value="lcv">LCV – Light Commercial Vehicle (≤7.5 T GVW)</option>
+              <option value="icv">ICV – Intermediate Commercial Vehicle (≤12 T GVW)</option>
+              <option value="mcv">MCV – Medium Commercial Vehicle (≤16.2 T GVW)</option>
+              <option value="hcv">HCV – Heavy Commercial Vehicle (≤25 T GVW)</option>
+              <option value="hcv_multi">HCV Multi-Axle (≤40.2 T GVW, national permit)</option>
+              <option value="mhcv">MHCV / Over-Dimensional Cargo (&gt;40.2 T)</option>
+            </>
+          )}
+        </select>
+      </div>
+
+      {/* Payload & GVW overrides */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">
+            <Weight size={11} /> Max Payload (kg)
+          </label>
+          <input
+            type="number"
+            className="form-input"
+            placeholder="Auto from class"
+            min={1}
+            value={maxPayloadKg ?? ""}
+            onChange={(e) =>
+              onMaxPayloadChange(e.target.value ? Number(e.target.value) : undefined)
+            }
+          />
         </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">
+            <Weight size={11} /> GVW Limit (kg)
+          </label>
+          <input
+            type="number"
+            className="form-input"
+            placeholder="Auto from class"
+            min={1}
+            value={gvwKg ?? ""}
+            onChange={(e) =>
+              onGvwChange(e.target.value ? Number(e.target.value) : undefined)
+            }
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          fontSize: "0.68rem",
+          color: "#64748b",
+          marginTop: 4,
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 4,
+        }}
+      >
+        <AlertTriangle size={11} style={{ color: "#f59e0b", flexShrink: 0, marginTop: 1 }} />
+        Override only if your permit differs from the class default.
+        Cargo exceeding max payload will be rejected by the planner.
       </div>
     </div>
   );
